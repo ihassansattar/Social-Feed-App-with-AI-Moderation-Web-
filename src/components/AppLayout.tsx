@@ -10,7 +10,6 @@ import {
   User,
   Feather,
   Users,
-  Video,
   TrendingUp,
   Activity,
   BookOpen,
@@ -93,7 +92,7 @@ export default function AppLayout({
       event: '*',
       schema: 'public',
       table: 'follows'
-    }, (payload) => {
+    }, () => {
       // Refetch following users when follows change
       fetchFollowingUsers();
     }).subscribe();
@@ -268,7 +267,7 @@ export default function AppLayout({
 
       {/* Main Content Area */}
       <div className="w-full px-4 py-4">
-        <div className="flex gap-6">
+        <div className="mx-auto max-w-[1400px] flex gap-6 justify-center">
           {/* Left Sidebar */}
           <aside className="hidden lg:block w-80 flex-shrink-0">
             <div className="sticky top-20 space-y-4 max-h-[calc(100vh-6rem)] overflow-y-auto scrollbar-hide">
@@ -307,7 +306,7 @@ export default function AppLayout({
           </aside>
 
           {/* Main Content */}
-          <main className="flex-1 max-w-2xl">
+          <main className="w-full max-w-2xl">
             {children}
           </main>
 
