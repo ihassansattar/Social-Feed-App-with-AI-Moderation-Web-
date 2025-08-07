@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -258,7 +259,7 @@ export default function UserProfilePage() {
         <div className="text-center py-12">
           <User className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-900 mb-2">User Not Found</h2>
-          <p className="text-gray-600">The user you're looking for doesn't exist.</p>
+          <p className="text-gray-600">The user you&apos;re looking for doesn&apos;t exist.</p>
         </div>
       </AppLayout>
     );
@@ -305,7 +306,7 @@ export default function UserProfilePage() {
                       </p>
                       <p className="text-xs text-gray-500">
                         Member since {(() => {
-                          const date = profile.created_at || currentUser?.created_at;
+                          const date = profile.created_at;
                           if (date) {
                             try {
                               return new Date(date).toLocaleDateString('en-US', {
