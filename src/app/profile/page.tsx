@@ -25,7 +25,7 @@ interface Follower {
 export default function ProfilePage() {
   const router = useRouter();
   const pathname = usePathname();
-  const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
+  const [user, setUser] = useState<{ id: string; email?: string; created_at?: string } | null>(null);
   const [profile, setProfile] = useState<ExtendedUserProfile | null>(null);
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const [followers, setFollowers] = useState<Follower[]>([]);
@@ -57,7 +57,7 @@ export default function ProfilePage() {
         toast.error('User not found');
         return;
       }
-      setUser(user);
+      setUser({ id: user.id, email: user.email || undefined, created_at: user.created_at });
 
       // Get user profile from profiles table
       const { data: profileData, error: profileError } = await supabase
@@ -83,7 +83,7 @@ export default function ProfilePage() {
           email: user.email || 'Not set',
           avatar_url: profileData.avatar_url,
           cover_image_url: profileData.cover_image_url,
-          created_at: profileData.created_at,
+           created_at: profileData.created_at || user.created_at,
           stats
         });
         setFormData({
@@ -229,6 +229,9 @@ export default function ProfilePage() {
           : follower
       ));
 
+      // Invalidate following cache so AppLayout refreshes
+      try { localStorage.setItem('sf_following_invalidate', String(Date.now())); } catch {}
+
       // Update stats
       const stats = await fetchProfileStats(user.id);
       setProfile(prev => prev ? { ...prev, stats } : null);
@@ -263,6 +266,9 @@ export default function ProfilePage() {
           ? { ...follower, is_following_back: false }
           : follower
       ));
+
+      // Invalidate following cache so AppLayout refreshes
+      try { localStorage.setItem('sf_following_invalidate', String(Date.now())); } catch {}
 
       // Update stats
       const stats = await fetchProfileStats(user.id);
@@ -1088,7 +1094,7 @@ export default function ProfilePage() {
                           <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                             <Calendar className="w-4 h-4 text-gray-500" />
                             <span className="text-gray-900">
-                              {profile?.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { 
+                              {(profile?.created_at || user?.created_at) ? new Date((profile?.created_at || (user?.created_at as string))).toLocaleDateString('en-US', { 
                                 year: 'numeric', 
                                 month: 'long', 
                                 day: 'numeric' 

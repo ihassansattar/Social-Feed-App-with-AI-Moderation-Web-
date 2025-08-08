@@ -48,7 +48,7 @@ export default function AppLayout({
     router.push("/login");
   };
 
-  // Fetch following users but cache to avoid reloading on page changes
+  // Fetch following users and keep it fresh across the app
   useEffect(() => {
     // Cache helpers
     const setAndCacheFollowing = (users: Array<{ id: string; full_name: string; avatar_url?: string; online?: boolean }>) => {
@@ -138,8 +138,21 @@ export default function AppLayout({
 
     // Load from cache first; fall back to fetch
     const loadedFromCache = tryLoadFromCache();
-    if (!loadedFromCache) {
+    if (!loadedFromCache) void fetchFollowingUsers();
+
+    // Listen for auth state changes (login/logout) and refresh following list
+    const { data: authSub } = supabase.auth.onAuthStateChange(() => {
       void fetchFollowingUsers();
+    });
+
+    // Listen for cross-tab/local invalidation of following cache
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'sf_following_invalidate') {
+        void fetchFollowingUsers();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', onStorage);
     }
 
     // Real-time subscription for follows - set up only once globally per app load
@@ -168,7 +181,11 @@ export default function AppLayout({
     // Do not remove global subscription on unmount so it persists across page changes
     return () => {
       if (createdHere) {
-        // Intentionally keep the channel alive to avoid reloading on navigation
+        // keep realtime channel alive
+      }
+      authSub?.subscription.unsubscribe();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('storage', onStorage);
       }
     };
   }, []);
@@ -531,7 +548,7 @@ export default function AppLayout({
                   <span>•</span>
                   <span>Contact</span>
                   <span>•</span>
-                  <span>Social Feed © 2024</span>
+                  <span>Social Feed © 2025</span>
                 </div>
               </div>
             </div>

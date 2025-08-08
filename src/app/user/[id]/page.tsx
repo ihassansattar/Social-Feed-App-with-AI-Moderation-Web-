@@ -187,6 +187,8 @@ export default function UserProfilePage() {
 
         setIsFollowing(false);
         setFollowersCount(prev => prev - 1);
+        // Invalidate following cache so AppLayout refreshes
+        try { localStorage.setItem('sf_following_invalidate', String(Date.now())); } catch {}
         toast.success(`Unfollowed ${profile.full_name}`);
       } else {
         // Follow
@@ -201,6 +203,8 @@ export default function UserProfilePage() {
 
         setIsFollowing(true);
         setFollowersCount(prev => prev + 1);
+        // Invalidate following cache so AppLayout refreshes
+        try { localStorage.setItem('sf_following_invalidate', String(Date.now())); } catch {}
         toast.success(`Started following ${profile.full_name}`);
       }
     } catch (error) {
