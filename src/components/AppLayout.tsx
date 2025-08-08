@@ -35,6 +35,10 @@ export default function AppLayout({
     online?: boolean;
   }>>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUserProfile, setCurrentUserProfile] = useState<{
+    full_name?: string;
+    avatar_url?: string;
+  } | null>(null);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -44,12 +48,57 @@ export default function AppLayout({
     router.push("/login");
   };
 
-  // Fetch following users
+  // Fetch following users but cache to avoid reloading on page changes
   useEffect(() => {
+    // Cache helpers
+    const setAndCacheFollowing = (users: Array<{ id: string; full_name: string; avatar_url?: string; online?: boolean }>) => {
+      setFollowingUsers(users);
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sf_following', JSON.stringify(users));
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (window as any).__SF_FOLLOWING__ = users;
+        }
+      } catch {
+        // ignore storage errors
+      }
+    };
+
+    const tryLoadFromCache = (): boolean => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const globalVal = typeof window !== 'undefined' ? (window as any).__SF_FOLLOWING__ : null;
+        if (globalVal && Array.isArray(globalVal)) {
+          setFollowingUsers(globalVal);
+          setLoading(false);
+          return true;
+        }
+        if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem('sf_following');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed)) {
+              setFollowingUsers(parsed);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (window as any).__SF_FOLLOWING__ = parsed;
+              setLoading(false);
+              return true;
+            }
+          }
+        }
+      } catch {
+        // ignore cache errors
+      }
+      return false;
+    };
+
     const fetchFollowingUsers = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+          setAndCacheFollowing([]);
+          return;
+        }
 
         // Get users that current user is following
         const { data: followsData } = await supabase
@@ -59,7 +108,7 @@ export default function AppLayout({
 
         if (followsData && followsData.length > 0) {
           const followingIds = followsData.map(f => f.following_id);
-          
+
           // Get profile data for following users
           const { data: profilesData } = await supabase
             .from('profiles')
@@ -71,12 +120,14 @@ export default function AppLayout({
               id: profile.id,
               full_name: profile.full_name,
               avatar_url: profile.avatar_url,
-              online: Math.random() > 0.5 // Random online status for demo
+              online: Math.random() > 0.5
             }));
-            setFollowingUsers(usersWithOnlineStatus);
+            setAndCacheFollowing(usersWithOnlineStatus);
+          } else {
+            setAndCacheFollowing([]);
           }
         } else {
-          setFollowingUsers([]);
+          setAndCacheFollowing([]);
         }
       } catch (error) {
         console.error('Error fetching following users:', error);
@@ -85,21 +136,95 @@ export default function AppLayout({
       }
     };
 
-    fetchFollowingUsers();
+    // Load from cache first; fall back to fetch
+    const loadedFromCache = tryLoadFromCache();
+    if (!loadedFromCache) {
+      void fetchFollowingUsers();
+    }
 
-    // Real-time subscription for follows
-    const channel = supabase.channel('following_users').on('postgres_changes', {
-      event: '*',
-      schema: 'public',
-      table: 'follows'
-    }, () => {
-      // Refetch following users when follows change
-      fetchFollowingUsers();
-    }).subscribe();
+    // Real-time subscription for follows - set up only once globally per app load
+    let createdHere = false;
+    try {
+      if (typeof window !== 'undefined') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const w = window as any;
+        if (!w.__SF_FOLLOWING_SUB__) {
+          const channel = supabase.channel('following_users').on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'follows'
+          }, () => {
+            // Refetch and refresh cache when follows change
+            void fetchFollowingUsers();
+          }).subscribe();
+          w.__SF_FOLLOWING_SUB__ = channel;
+          createdHere = true;
+        }
+      }
+    } catch {
+      // ignore subscription errors
+    }
 
+    // Do not remove global subscription on unmount so it persists across page changes
     return () => {
-      supabase.removeChannel(channel);
+      if (createdHere) {
+        // Intentionally keep the channel alive to avoid reloading on navigation
+      }
     };
+  }, []);
+
+  // Load current user's profile once per app load and cache it to avoid reloading on page changes
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        // Prefer in-memory cache if available (persists across client-side navigations)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const globalProfile = (typeof window !== 'undefined' && (window as any).__SF_PROFILE__) || null;
+        if (globalProfile) {
+          setCurrentUserProfile(globalProfile);
+          return;
+        }
+
+        // Fallback to localStorage cache
+        if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem('sf_profile');
+          if (cached) {
+            try {
+              const parsed = JSON.parse(cached);
+              setCurrentUserProfile(parsed);
+              // Also set global for quicker subsequent mounts
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (window as any).__SF_PROFILE__ = parsed;
+              return;
+            } catch {
+              // Ignore JSON errors and refetch
+            }
+          }
+        }
+
+        // Fetch from Supabase once
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, avatar_url')
+          .eq('id', user.id)
+          .single();
+
+        if (profile) {
+          setCurrentUserProfile(profile);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('sf_profile', JSON.stringify(profile));
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (window as any).__SF_PROFILE__ = profile;
+          }
+        }
+      } catch (error) {
+        console.error('Error loading profile:', error);
+      }
+    };
+
+    loadProfile();
   }, []);
 
   const navItems = [
@@ -214,9 +339,17 @@ export default function AppLayout({
                 <Button variant="ghost" size="icon" className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200">
                   <Bell className="w-5 h-5" />
                 </Button>
-                <Button variant="ghost" size="icon" className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200">
-                  <User className="w-5 h-5" />
-                </Button>
+                <Link href="/profile">
+                  <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 hover:opacity-90 cursor-pointer">
+                    {currentUserProfile?.avatar_url ? (
+                      <img src={currentUserProfile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <User className="w-5 h-5 text-gray-600" />
+                      </div>
+                    )}
+                  </div>
+                </Link>
               </div>
 
               {/* Mobile: Show dropdown and profile only */}
@@ -256,9 +389,17 @@ export default function AppLayout({
                     </div>
                   )}
                 </div>
-                <Button variant="ghost" size="icon" className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200">
-                  <User className="w-5 h-5" />
-                </Button>
+                <Link href="/profile">
+                  <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 hover:opacity-90 cursor-pointer">
+                    {currentUserProfile?.avatar_url ? (
+                      <img src={currentUserProfile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <User className="w-5 h-5 text-gray-600" />
+                      </div>
+                    )}
+                  </div>
+                </Link>
               </div>
             </div>
           </div>
@@ -301,6 +442,18 @@ export default function AppLayout({
                     </Link>
                   ))}
                 </div>
+              </div>
+
+              {/* Logout Button at the end of sidebar */}
+              <div className="bg-white rounded-lg shadow-sm p-4">
+                <Button
+                  onClick={handleLogout}
+                  variant="ghost"
+                  className="w-full justify-start h-12 text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  <LogOut className="w-5 h-5 mr-3" />
+                  Logout
+                </Button>
               </div>
             </div>
           </aside>
